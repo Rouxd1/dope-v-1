@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dope Farm PvP</title>
+  <link rel="stylesheet" href="ui/styles.css">
+</head>
+<body>
+  <div id="game-container">
+    <!-- HUD displays current player, cash, bank and energy -->
+    <div id="hud">
+      <div id="hud-content"></div>
+    </div>
+    <!-- Grid will render the board -->
+    <div id="grid"></div>
+    <!-- Bottom action tray for player inputs -->
+    <div id="action-tray" class="hidden"></div>
+    <!-- Overlay for pass device / turn messages -->
+    <div id="overlay" class="hidden">
+      <div id="overlay-message"></div>
+      <button id="overlay-continue">Start Turn</button>
+    </div>
+    <!-- Simple store UI -->
+    <div id="store-ui" class="hidden">
+      <div class="panel">
+        <h3>Store</h3>
+        <div id="store-content"></div>
+        <button id="close-store">Close</button>
+      </div>
+    </div>
+    <!-- Simple bank UI -->
+    <div id="bank-ui" class="hidden">
+      <div class="panel">
+        <h3>Bank</h3>
+        <div id="bank-content"></div>
+        <button id="close-bank">Close</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="ui/main.js"></script>
+</body>
+</html>

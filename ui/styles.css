@@ -1,0 +1,233 @@
+/* Global styles */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background-color: #e6f2ff;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  height: 100vh;
+}
+
+#game-container {
+  position: relative;
+  margin-top: 10px;
+}
+
+/* HUD */
+#hud {
+  margin-bottom: 5px;
+  text-align: center;
+  font-size: 14px;
+}
+
+#hud .team-block {
+  display: inline-block;
+  margin: 0 10px;
+}
+
+/* Grid layout */
+#grid {
+  display: grid;
+  grid-template-columns: repeat(14, 32px);
+  grid-template-rows: repeat(12, 32px);
+  gap: 1px;
+  background-color: #555;
+}
+
+.cell {
+  width: 32px;
+  height: 32px;
+  position: relative;
+  box-sizing: border-box;
+  background-color: #ddd;
+  border: 1px solid #ccc;
+}
+
+.farmland0 {
+  background-color: #c8e5f6;
+}
+
+.farmland1 {
+  background-color: #d8f6c8;
+}
+
+.neutral {
+  background-color: #eef7e0;
+}
+
+.lake {
+  background-color: #86c8f4;
+}
+
+.thorns {
+  background-color: #a3c176;
+  background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.05) 0 4px, rgba(0,0,0,0.1) 4px 8px);
+}
+
+.bank {
+  background-color: #bdb7a7;
+}
+
+.store {
+  background-color: #eac9a3;
+}
+
+.farmhouse0 {
+  background-color: #f3d6c8;
+}
+
+.farmhouse1 {
+  background-color: #c8d6f3;
+}
+
+/* Crop indicator */
+.crop {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  background-color: #f7c65a;
+  border-radius: 3px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+  color: #603c00;
+  font-weight: bold;
+}
+
+/* Crop type colors */
+.crop.wheat {
+  background-color: #f7c65a;
+}
+.crop.mjcheap {
+  background-color: #b7d6a6;
+}
+.crop.mjpremium {
+  background-color: #d6a6b7;
+}
+
+/* Rot penalty indicator: dashed border */
+.crop.rot {
+  border: 2px dashed #c0392b;
+}
+
+/* Rot destroyed indicator: grey with strikeout */
+.crop.destroyed {
+  background-color: #cfcfcf;
+  color: #8a0c0c;
+}
+
+/* Player indicator */
+.player {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  top: 4px;
+  left: 4px;
+  border-radius: 4px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.player.team0 {
+  background-color: #007acc;
+}
+
+.player.team1 {
+  background-color: #2ca02c;
+}
+
+/* Action tray */
+#action-tray {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  padding: 10px;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 100;
+}
+
+#action-tray.hidden {
+  display: none;
+}
+
+.action-button {
+  background-color: #444;
+  border: 1px solid #666;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 14px;
+  color: #fff;
+  cursor: pointer;
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Overlay */
+#overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  z-index: 200;
+  color: #fff;
+  text-align: center;
+}
+
+#overlay.hidden {
+  display: none;
+}
+
+#overlay button {
+  margin-top: 15px;
+  padding: 8px 16px;
+  font-size: 16px;
+  border: none;
+  border-radius: 4px;
+  background-color: #007acc;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* Panels (store and bank) */
+.panel {
+  background-color: #fff;
+  border-radius: 6px;
+  padding: 15px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+  color: #333;
+  max-width: 300px;
+}
+
+#store-ui, #bank-ui {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 300;
+}
+
+#store-ui.hidden, #bank-ui.hidden {
+  display: none;
+}

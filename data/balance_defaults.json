@@ -1,0 +1,54 @@
+{
+  "energyMax": 10,
+  "startingCash": 10,
+  "landCost": 20,
+  "turnTime": 45,
+  "crops": {
+    "wheat": {
+      "seedCost": 1,
+      "baseValue": 5,
+      "growthStages": 3,
+      "growthRate": 2,
+      "plantEnergy": 1,
+      "harvestEnergy": 1
+    },
+    "mj_cheap": {
+      "seedCost": 5,
+      "baseValue": 20,
+      "growthStages": 4,
+      "growthRate": 3,
+      "plantEnergy": 2,
+      "harvestEnergy": 2
+    },
+    "mj_premium": {
+      "seedCost": 15,
+      "baseValue": 60,
+      "growthStages": 4,
+      "growthRate": 3,
+      "plantEnergy": 3,
+      "harvestEnergy": 2
+    }
+  },
+  "market": {
+    "mj_cheap": {
+      "decayPerDay": 0.12,
+      "floor": 0.10
+    },
+    "mj_premium": {
+      "decayPerDay": 0.03,
+      "floor": 0.60
+    }
+  },
+  "hazards": {
+    "mj_cheap": {
+      "pestChance": 0.25,
+      "rotChance": 0.18,
+      "rotEffect": "destroy"
+    },
+    "mj_premium": {
+      "pestChance": 0.15,
+      "rotChance": 0.08,
+      "rotEffect": "reduce"
+    }
+  }
+}
