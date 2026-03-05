@@ -1,15 +1,17 @@
 /*
  * Deterministic game state for Dope Farm PvP.
  *
- * This engine models a 2v2 farming competition with four farmers on a
- * 14×12 board. The board contains farmland for each team on the left
- * and right, a neutral lane with a 2×2 lake in the middle, plus a bank
- * row at the top and a store row at the bottom. Each farmer has
- * limited energy per turn and can plant, harvest and interact with
- * buildings. Marijuana crops are modeled as high‑risk, high‑reward
- * crops whose value decays over time and which suffer from pests and
- * rot. The simulation is fully deterministic given a seed and a
- * sequence of player intents.
+ * Update: Harvest no longer converts directly into cash.
+ * - Harvest produces GOODS into player inventory (player.goods).
+ * - Store sells GOODS into cash via game.sellGoods(...).
+ *
+ * Marijuana:
+ * - Cheap strains decay in market value over time (floor at 10%).
+ * - Pests can stall growth for a day.
+ * - Rot can destroy cheap weed (0 value) or reduce premium weed (50% value).
+ *
+ * Determinism:
+ * - All hazards use a seeded RNG inside endDay().
  */
 
 export class RNG {
@@ -21,7 +23,6 @@ export class RNG {
     return this.state;
   }
   random() {
-    // Returns [0,1)
     return (this.next() & 0xfffffff) / 0x10000000;
   }
 }
@@ -30,13 +31,10 @@ export class Cell {
   constructor(x, y) {
     this.x = x;
     this.y = y;
-    // Types: ground, lake, thorns, bank, store, farmhouse0, farmhouse1
-    this.type = 'ground';
-    // Owner team: 0, 1 or null
-    this.ownerTeam = null;
-    // Crop object or null. Crop fields: type, stage, growth, skipGrowth,
-    // rotPenalty, rotDestroyed
-    this.crop = null;
+    // ground, lake, bank, store, farmhouse0, farmhouse1
+    this.type = "ground";
+    this.ownerTeam = null; // 0 | 1 | null
+    this.crop = null;      // { type, stage, growth, skipGrowth, rotPenalty, rotDestroyed }
   }
 }
 
@@ -46,19 +44,25 @@ export class Player {
     this.team = team;
     this.x = x;
     this.y = y;
+
     this.energy = config.energyMax;
     this.cash = config.startingCash;
     this.bank = 0;
-    // The type of seed the player will plant. Defaults to wheat.
-    this.activeSeed = 'wheat';
-    // Inventory: not used yet, reserved for future tools/equipment.
+
+    // what seed type Interact plants when on owned farmland
+    this.activeSeed = "wheat";
+
+    // two item slots reserved for later
     this.items = [null, null];
+
+    // GOODS: harvested items you can sell at the store
+    // each entry: { type: 'wheat'|'mj_cheap'|'mj_premium', qualityMult: 1|0.5|0 }
+    this.goods = [];
   }
 }
 
 export class GameState {
   constructor(seed = 1, config = {}) {
-    // Merge provided config with defaults. Must include crops, market and hazards.
     const defaults = {
       width: 14,
       height: 12,
@@ -67,82 +71,86 @@ export class GameState {
       landCost: 20,
       crops: {},
       market: {},
-      hazards: {}
+      hazards: {},
     };
     this.config = Object.assign({}, defaults, config);
+
     this.rng = new RNG(seed);
     this.day = 1;
-    this.turnLog = [];
-    this.players = [];
-    this.currentPlayerIndex = 0;
-    // Build grid
+
     this.width = this.config.width;
     this.height = this.config.height;
+
     this.grid = [];
     for (let y = 0; y < this.height; y++) {
       const row = [];
-      for (let x = 0; x < this.width; x++) {
-        row.push(new Cell(x, y));
-      }
+      for (let x = 0; x < this.width; x++) row.push(new Cell(x, y));
       this.grid.push(row);
     }
+
     this.setupBoard();
+
+    this.players = [];
     this.setupPlayers();
+    this.currentPlayerIndex = 0;
   }
 
   setupBoard() {
-    // Board zones: left farmland (columns 0–4) for team 0, neutral lane (5–8)
-    // with a 2×2 lake, right farmland (9–13) for team 1, plus special rows
-    // for bank, store and farmhouses.
+    // left farmland: cols 0–4 team 0
+    // neutral lane: cols 5–8 with 2×2 lake centered
+    // right farmland: cols 9–13 team 1
+    // top row = bank, bottom row = store
     const leftCols = 5;
     const middleCols = 4;
-    const rightCols = 5;
     const lakeColsStart = leftCols + Math.floor((middleCols - 2) / 2);
     const lakeRowsStart = Math.floor((this.height - 2) / 2);
+
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const cell = this.grid[y][x];
-        // Top row: bank
+
         if (y === 0) {
-          cell.type = 'bank';
+          cell.type = "bank";
           cell.ownerTeam = null;
           continue;
         }
-        // Bottom row: store
         if (y === this.height - 1) {
-          cell.type = 'store';
+          cell.type = "store";
           cell.ownerTeam = null;
           continue;
         }
-        // Farmhouse positions for each team (second row from top/bottom)
         if (y === 1 && (x === 1 || x === 2)) {
-          cell.type = 'farmhouse0';
+          cell.type = "farmhouse0";
           cell.ownerTeam = 0;
           continue;
         }
-        if (y === this.height - 2 && (x === this.width - 2 || x === this.width - 3)) {
-          cell.type = 'farmhouse1';
+        if (
+          y === this.height - 2 &&
+          (x === this.width - 2 || x === this.width - 3)
+        ) {
+          cell.type = "farmhouse1";
           cell.ownerTeam = 1;
           continue;
         }
-        // Left farmland
+
         if (x < leftCols) {
-          cell.type = 'ground';
+          cell.type = "ground";
           cell.ownerTeam = 0;
-        }
-        // Right farmland
-        else if (x >= leftCols + middleCols) {
-          cell.type = 'ground';
+        } else if (x >= leftCols + middleCols) {
+          cell.type = "ground";
           cell.ownerTeam = 1;
-        }
-        // Neutral lane
-        else {
-          // Central 2×2 lake
-          if (x >= lakeColsStart && x < lakeColsStart + 2 && y >= lakeRowsStart && y < lakeRowsStart + 2) {
-            cell.type = 'lake';
+        } else {
+          // neutral lane
+          if (
+            x >= lakeColsStart &&
+            x < lakeColsStart + 2 &&
+            y >= lakeRowsStart &&
+            y < lakeRowsStart + 2
+          ) {
+            cell.type = "lake";
             cell.ownerTeam = null;
           } else {
-            cell.type = 'ground';
+            cell.type = "ground";
             cell.ownerTeam = null;
           }
         }
@@ -152,10 +160,10 @@ export class GameState {
 
   setupPlayers() {
     const cfg = this.config;
-    // Team 0 players start on left farmland near farmhouse
+    // Team 0
     this.players.push(new Player(0, 0, 1, 3, cfg));
     this.players.push(new Player(1, 0, 3, 4, cfg));
-    // Team 1 players start on right farmland near farmhouse
+    // Team 1
     this.players.push(new Player(2, 1, this.width - 2, this.height - 4, cfg));
     this.players.push(new Player(3, 1, this.width - 4, this.height - 5, cfg));
   }
@@ -172,9 +180,7 @@ export class GameState {
   isPassable(x, y) {
     const cell = this.getCell(x, y);
     if (!cell) return false;
-    // Lake cannot be walked on
-    if (cell.type === 'lake') return false;
-    // Prevent walking onto another player
+    if (cell.type === "lake") return false;
     for (const p of this.players) {
       if (p.x === x && p.y === y) return false;
     }
@@ -182,151 +188,179 @@ export class GameState {
   }
 
   movePlayer(player, dx, dy) {
+    if (player.energy <= 0) return { success: false };
     const nx = player.x + dx;
     const ny = player.y + dy;
     if (!this.isPassable(nx, ny)) return { success: false };
-    // Movement costs 1 energy
-    if (player.energy <= 0) return { success: false };
     player.x = nx;
     player.y = ny;
     player.energy -= 1;
     return { success: true };
   }
 
-  // Primary interaction: plant, harvest, open bank/store
   interact(player) {
     const cell = this.getCell(player.x, player.y);
-    if (!cell) return { type: 'none' };
-    // Buildings
-    if (cell.type === 'bank') {
-      return { type: 'bank' };
-    }
-    if (cell.type === 'store') {
-      return { type: 'store' };
-    }
-    if (cell.type === 'ground') {
-      // If crop exists and is mature: harvest
+    if (!cell) return { type: "none" };
+
+    if (cell.type === "bank") return { type: "bank" };
+    if (cell.type === "store") return { type: "store" };
+    if (cell.type === "farmhouse0" || cell.type === "farmhouse1") return { type: "farmhouse" };
+    if (cell.type === "lake") return { type: "lake" };
+
+    // ground
+    if (cell.type === "ground") {
+      // harvest if mature
       if (cell.crop && this.isCropMature(cell.crop)) {
-        this.harvestCrop(player, cell);
-        return { type: 'harvest' };
+        const ok = this.harvestCropToGoods(player, cell);
+        return { type: ok ? "harvest" : "none" };
       }
-      // Otherwise attempt to plant
+
+      // plant if empty + owned
       if (!cell.crop && cell.ownerTeam === player.team) {
-        this.plantCrop(player, cell);
-        return { type: 'plant' };
+        const ok = this.plantCrop(player, cell);
+        return { type: ok ? "plant" : "none" };
       }
-      return { type: 'none' };
     }
-    return { type: 'none' };
+
+    return { type: "none" };
   }
 
   isCropMature(crop) {
     const cfg = this.config.crops[crop.type];
-    return crop.stage >= cfg.growthStages;
+    if (!cfg) return false;
+    return crop.stage >= (cfg.growthStages - 1);
   }
 
   plantCrop(player, cell) {
-    const seedType = player.activeSeed;
-    const cropCfg = this.config.crops[seedType];
-    if (!cropCfg) return false;
-    // Check resources
-    if (player.cash < cropCfg.seedCost) return false;
-    if (player.energy < cropCfg.plantEnergy) return false;
-    // Spend resources
-    player.cash -= cropCfg.seedCost;
-    player.energy -= cropCfg.plantEnergy;
-    // Plant crop
+    const type = player.activeSeed || "wheat";
+    const cfg = this.config.crops[type];
+    if (!cfg) return false;
+
+    if (player.cash < cfg.seedCost) return false;
+    if (player.energy < cfg.plantEnergy) return false;
+
+    player.cash -= cfg.seedCost;
+    player.energy -= cfg.plantEnergy;
+
     cell.crop = {
-      type: seedType,
+      type,
       stage: 0,
       growth: 0,
       skipGrowth: false,
-      rotPenalty: 0,
+      rotPenalty: 0,     // 0 or 0.5
       rotDestroyed: false
     };
     return true;
   }
 
-  harvestCrop(player, cell) {
+  /**
+   * Harvest now produces GOODS, not cash.
+   * Cash is earned when you SELL goods at the Store.
+   */
+  harvestCropToGoods(player, cell) {
     const crop = cell.crop;
-    const cropCfg = this.config.crops[crop.type];
-    // Check energy for harvesting
-    if (player.energy < cropCfg.harvestEnergy) return false;
-    player.energy -= cropCfg.harvestEnergy;
-    // Compute payout
-    let value = cropCfg.baseValue;
-    // Apply market decay for weed (mj types)
-    if (crop.type.startsWith('mj')) {
-      const marketCfg = this.config.market[crop.type];
-      if (marketCfg) {
-        const decay = marketCfg.decayPerDay;
-        const floor = marketCfg.floor;
-        const multiplier = Math.max(floor, 1 - decay * (this.day - 1));
-        value *= multiplier;
-      }
-      // Apply rot penalty or destruction
-      if (crop.rotDestroyed) {
-        value = 0;
-      } else if (crop.rotPenalty > 0) {
-        value *= (1 - crop.rotPenalty);
-      }
+    const cfg = this.config.crops[crop.type];
+    if (!cfg) return false;
+
+    if (player.energy < cfg.harvestEnergy) return false;
+    player.energy -= cfg.harvestEnergy;
+
+    let qualityMult = 1;
+
+    if (crop.type.startsWith("mj")) {
+      if (crop.rotDestroyed) qualityMult = 0;
+      else if (crop.rotPenalty > 0) qualityMult = 0.5;
     }
-    // Round to nearest integer
-    value = Math.round(value);
-    player.cash += value;
-    // Clear crop
+
+    player.goods.push({ type: crop.type, qualityMult });
     cell.crop = null;
     return true;
   }
 
-  endTurn() {
-    // Advance to next player
-    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
-    // If we've looped back to player 0, end the day
-    if (this.currentPlayerIndex === 0) {
-      this.endDay();
+  /** Weed market multiplier based on day, with floor. Non-weed = 1. */
+  getMarketMultiplier(cropType) {
+    if (!cropType.startsWith("mj")) return 1;
+    const m = this.config.market[cropType];
+    if (!m) return 1;
+    const mult = 1 - m.decayPerDay * (this.day - 1);
+    return Math.max(m.floor, mult);
+  }
+
+  /**
+   * Sell qty goods of cropType from player's goods inventory.
+   * Returns payout (cash added to player.cash).
+   */
+  sellGoods(player, cropType, qty) {
+    const cfg = this.config.crops[cropType];
+    if (!cfg) return 0;
+
+    const goods = player.goods || [];
+    const idxs = [];
+    for (let i = 0; i < goods.length; i++) {
+      if (goods[i].type === cropType) idxs.push(i);
     }
+    const sellCount = Math.min(qty, idxs.length);
+    if (sellCount <= 0) return 0;
+
+    const mult = this.getMarketMultiplier(cropType);
+    let payout = 0;
+
+    // remove from end so indexes stay valid
+    for (let k = 0; k < sellCount; k++) {
+      const idx = idxs[idxs.length - 1 - k];
+      const g = goods[idx];
+      const unit = Math.max(0, Math.round(cfg.baseValue * mult * g.qualityMult));
+      payout += unit;
+      goods.splice(idx, 1);
+    }
+
+    player.cash += payout;
+    return payout;
+  }
+
+  endTurn() {
+    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
+    if (this.currentPlayerIndex === 0) this.endDay();
   }
 
   endDay() {
-    // Process hazards and growth for each crop
+    // hazards + growth
     for (let y = 0; y < this.height; y++) {
       for (let x = 0; x < this.width; x++) {
         const cell = this.grid[y][x];
         const crop = cell.crop;
         if (!crop) continue;
-        const cropCfg = this.config.crops[crop.type];
-        // Only apply hazards to marijuana crops
-        if (crop.type.startsWith('mj')) {
-          const hazardCfg = this.config.hazards[crop.type];
-          if (hazardCfg) {
-            // Pest: stalls growth for one day
-            const pestRoll = this.rng.random();
-            if (!crop.rotDestroyed && pestRoll < hazardCfg.pestChance) {
+
+        const cfg = this.config.crops[crop.type];
+        if (!cfg) continue;
+
+        // Weed hazards
+        if (crop.type.startsWith("mj")) {
+          const hz = this.config.hazards[crop.type];
+          if (hz && !crop.rotDestroyed) {
+            // pest => stall growth one day
+            if (this.rng.random() < hz.pestChance) {
               crop.skipGrowth = true;
             }
-            // Rot: destroy or reduce yield
-            const rotRoll = this.rng.random();
-            if (!crop.rotDestroyed && rotRoll < hazardCfg.rotChance) {
-              if (hazardCfg.rotEffect === 'destroy') {
-                crop.rotDestroyed = true;
-              } else if (hazardCfg.rotEffect === 'reduce') {
-                // Only apply penalty once
-                if (crop.rotPenalty === 0) {
-                  crop.rotPenalty = 0.5;
-                }
+
+            // rot
+            if (this.rng.random() < hz.rotChance) {
+              if (hz.rotEffect === "destroy") {
+                crop.rotDestroyed = true; // will sell for 0 when harvested
+              } else if (hz.rotEffect === "reduce") {
+                if (crop.rotPenalty === 0) crop.rotPenalty = 0.5;
               }
             }
           }
         }
-        // Growth update (skip if destroyed or no skipGrowth flag)
+
+        // growth (if not destroyed)
         if (!crop.rotDestroyed) {
           if (crop.skipGrowth) {
-            // Consume skip flag but don't grow this day
             crop.skipGrowth = false;
           } else {
             crop.growth += 1;
-            if (crop.growth >= cropCfg.growthRate) {
+            if (crop.growth >= cfg.growthRate) {
               crop.growth = 0;
               crop.stage += 1;
             }
@@ -334,10 +368,12 @@ export class GameState {
         }
       }
     }
-    // Reset players' energy
+
+    // reset energy
     for (const p of this.players) {
       p.energy = this.config.energyMax;
     }
+
     this.day += 1;
   }
 }
