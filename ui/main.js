@@ -1,11 +1,9 @@
 // Entry point for Dope Farm PvP hotseat demo.
-// Update: store now supports SELLING harvested goods.
-// - Harvest produces goods into player.goods (not cash)
-// - Store converts goods into cash via game.sellGoods()
+// Update: Store now BUYS seed UNITS (cash cost) and planting consumes seeds (energy only).
+// Harvest produces goods; Store sells goods into cash.
 
 import { GameState } from "../sim/GameState.js";
 
-// UI config loaded from balance_defaults.json
 let uiConfig = { turnTime: 45 };
 
 let game;
@@ -29,7 +27,6 @@ const closeBankBtn = document.getElementById("close-bank");
 async function init() {
   let configData = {};
   try {
-    // robust URL resolution for GitHub Pages
     const resp = await fetch(new URL("../data/balance_defaults.json", import.meta.url));
     configData = await resp.json();
   } catch (err) {
@@ -71,7 +68,6 @@ function render() {
     cellDiv.innerHTML = "";
   }
 
-  // terrain + crops
   for (let y = 0; y < game.height; y++) {
     for (let x = 0; x < game.width; x++) {
       const cell = game.getCell(x, y);
@@ -110,16 +106,9 @@ function render() {
         cropDiv.classList.add("crop");
 
         let letter = "?";
-        if (crop.type === "wheat") {
-          cropDiv.classList.add("wheat");
-          letter = "W";
-        } else if (crop.type === "mj_cheap") {
-          cropDiv.classList.add("mjcheap");
-          letter = "C";
-        } else if (crop.type === "mj_premium") {
-          cropDiv.classList.add("mjpremium");
-          letter = "P";
-        }
+        if (crop.type === "wheat") { cropDiv.classList.add("wheat"); letter = "W"; }
+        else if (crop.type === "mj_cheap") { cropDiv.classList.add("mjcheap"); letter = "C"; }
+        else if (crop.type === "mj_premium") { cropDiv.classList.add("mjpremium"); letter = "P"; }
 
         if (crop.rotDestroyed) {
           cropDiv.classList.add("destroyed");
@@ -134,7 +123,6 @@ function render() {
     }
   }
 
-  // players
   for (const p of game.players) {
     const idx = p.y * game.width + p.x;
     const cellDiv = cells[idx];
@@ -150,9 +138,11 @@ function render() {
 function updateHUD() {
   const current = game.players[game.currentPlayerIndex];
 
-  // Bag counts
   const bag = {};
   for (const g of (current.goods || [])) bag[g.type] = (bag[g.type] || 0) + 1;
+
+  const seeds = current.seeds || {};
+  const seedCounts = `Seeds: W${seeds.wheat||0} C${seeds.mj_cheap||0} P${seeds.mj_premium||0}`;
 
   const hudList = [];
   hudList.push(`Day: ${game.day}`);
@@ -160,7 +150,8 @@ function updateHUD() {
   hudList.push(`Energy: ${current.energy}`);
   hudList.push(`Cash: $${current.cash.toFixed(0)}`);
   hudList.push(`Bank: $${current.bank.toFixed(0)}`);
-  hudList.push(`Seed: ${current.activeSeed}`);
+  hudList.push(`SeedSel: ${current.activeSeed}`);
+  hudList.push(seedCounts);
   hudList.push(`Bag: W${bag.wheat || 0} C${bag.mj_cheap || 0} P${bag.mj_premium || 0}`);
   hudList.push(`Time: ${remainingTime.toFixed(0)}s`);
 
@@ -273,76 +264,69 @@ function endCurrentPlayerTurn() {
   showOverlayForPlayer(game.currentPlayerIndex);
 }
 
-/* ---------------- Store UI (Buy + Sell) ---------------- */
-
-let storeInventory = [];
-
-function buildStoreInventory() {
-  storeInventory = [];
-  const crops = game.config.crops || {};
-
-  for (const type in crops) {
-    const cfg = crops[type];
-    const displayName =
-      type === "wheat" ? "Wheat Seed" :
-      type === "mj_cheap" ? "Cheap MJ Seed" :
-      type === "mj_premium" ? "Premium MJ Seed" :
-      `${type} Seed`;
-
-    storeInventory.push({
-      name: displayName,
-      price: cfg.seedCost,
-      action(player) {
-        if (player.cash >= cfg.seedCost) {
-          player.cash -= cfg.seedCost;
-          player.activeSeed = type;
-        }
-      },
-    });
-  }
-
-  // Energy upgrade (optional)
-  storeInventory.push({
-    name: "Upgrade Energy",
-    price: 10,
-    action(player) {
-      if (player.cash >= 10) {
-        player.cash -= 10;
-        player.energy += 5;
-      }
-    },
-  });
-}
+/* ---------------- Store UI (Buy Seeds + Sell Goods) ---------------- */
 
 function openStore() {
   const p = game.players[game.currentPlayerIndex];
-  buildStoreInventory();
-
   storeContentEl.innerHTML = "";
 
-  // BUY section
+  // BUY SEEDS
   const buyHeader = document.createElement("h4");
-  buyHeader.textContent = "Buy";
+  buyHeader.textContent = "Buy Seeds";
   storeContentEl.appendChild(buyHeader);
 
-  storeInventory.forEach((item) => {
-    const div = document.createElement("div");
-    const nameSpan = document.createElement("span");
-    nameSpan.textContent = `${item.name} `;
-    const btn = document.createElement("button");
-    btn.textContent = `Buy ($${item.price})`;
-    btn.disabled = p.cash < item.price;
-    btn.addEventListener("click", () => {
-      item.action(p);
+  const crops = game.config.crops || {};
+  const cropTypes = Object.keys(crops);
+
+  cropTypes.forEach((type) => {
+    const cfg = crops[type];
+
+    const row = document.createElement("div");
+    const name = document.createElement("span");
+
+    const displayName =
+      type === "wheat" ? "Wheat" :
+      type === "mj_cheap" ? "Cheap MJ" :
+      type === "mj_premium" ? "Premium MJ" :
+      type;
+
+    name.textContent = `${displayName} (Seed $${cfg.seedCost}) `;
+    row.appendChild(name);
+
+    const buy1 = document.createElement("button");
+    buy1.textContent = "Buy 1";
+    buy1.disabled = p.cash < cfg.seedCost;
+    buy1.addEventListener("click", () => {
+      game.buySeed(p, type, 1);
       render();
       openStore();
     });
-    div.appendChild(nameSpan);
-    div.appendChild(btn);
-    storeContentEl.appendChild(div);
+
+    const buy5 = document.createElement("button");
+    buy5.textContent = "Buy 5";
+    buy5.disabled = p.cash < (cfg.seedCost * 5);
+    buy5.addEventListener("click", () => {
+      game.buySeed(p, type, 5);
+      render();
+      openStore();
+    });
+
+    const select = document.createElement("button");
+    select.textContent = (p.activeSeed === type) ? "Selected" : "Select";
+    select.disabled = (p.activeSeed === type);
+    select.addEventListener("click", () => {
+      p.activeSeed = type;
+      render();
+      openStore();
+    });
+
+    row.appendChild(buy1);
+    row.appendChild(buy5);
+    row.appendChild(select);
+    storeContentEl.appendChild(row);
   });
 
-  // SELL section
+  // SELL GOODS
   const sellHeader = document.createElement("h4");
   sellHeader.style.marginTop = "10px";
   sellHeader.textContent = "Sell";
