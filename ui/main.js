@@ -34,7 +34,7 @@ async function init() {
   // Fetch config JSON from data folder
   let configData = {};
   try {
-    const resp = await fetch('../data/balance_defaults.json');
+    const resp = await fetch('data/balance_defaults.json');
     configData = await resp.json();
   } catch (err) {
     console.error('Failed to load balance_defaults.json:', err);
